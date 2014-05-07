@@ -37,9 +37,11 @@
     (vlc--process-send-line telnet-interface string)))
 
 (defun vlc--read-output (vlc-connection)
-  "Read output from vlc-connection process"
+  "Read output from vlc-connection process."
   (let ((telnet-interface (vlc-connection-telnet vlc-connection)))
     (vlc--)))
+
+
 
 (defun vlc-cmd-login (vlc-connection)
   (let ((host (vlc-connection-host vlc-connection))
@@ -58,7 +60,19 @@
     (vlc--process-send-line (vlc-connection-telnet vlc-connection) "admin")))
 
 
-
+(defun vlc--clean-output (output)
+  "Removes some junk from the output returned by VLC."
+  (let ((command-output output))
+    ;; Remove the trailing ^M characters
+    (setf command-output (replace-regexp-in-string "$" "" command-output))
+    ;; Remove the "> " from the last line
+    (setf command-output (replace-regexp-in-string "^> $" "" command-output))
+    ;; Remove the last newline if needed
+    ;; Only perform this step if string isn't empty
+    (if (and (> (length command-output) 0)
+          (string= (substring-no-properties command-output -1) "\n"))
+      (substring command-output 0 -1)   ; Trim the last character
+      command-output)))
 
 (defun vlc--send-cmd (vlc-connection cmd)
   "Send command to vlc connection and return the output."
@@ -67,18 +81,13 @@
     (vlc--send-line vlc-connection cmd)
     (with-current-buffer " *vlc-connection-telnet*"
       (while (= point-in-process-buffer (point))
-        ;; Need to add for the process-buffer to receive some thing from vlc
+        ;; Need to wait for the buffer's process to receive something from vlc
         ;; TODO: Wait only for the timeout
-        (sleep-for 0.5))
+        (sleep-for 0.1))
+      ;; Clean the output returned by vlc
       (let ((command-output (buffer-substring-no-properties point-in-process-buffer (point))))
-        ;; Remove the trailing ^M characters
-        (setf command-output (replace-regexp-in-string "$" "" command-output))
-        ;; Remove the "> " from the last line
-        (setf command-output (replace-regexp-in-string "^> $" "" command-output))
-        ;; Remove the last newline if needed
-        (if (string= (substring command-output -1) "\n")
-          (substring command-output 0 -1)
-          command-output)))))
+        (vlc--clean-output command-output)))))
+
 
 
 
