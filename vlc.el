@@ -82,6 +82,26 @@
       (let ((command-output (buffer-substring-no-properties point-in-process-buffer (point))))
         (vlc--clean-output command-output)))))
 
+(defun vlc-cmd-logout (vlc-connection)
+  "Logout of the VLC instance of VLC-CONNECTION"
+  (vlc--send-cmd vlc-connection "exit")
+  ;; Need to call `process-send-eof' because VLC doesn't close the
+  ;; connection when the client exits with "exit".
+  ;;
+  ;; This doesn't need to be used for `vlc-cmd-shutdown' and
+  ;; `vlc-cmd-quit'.
+  (process-send-eof (vlc-connection-telnet vlc-connection))
+  (setf (vlc-connection-telnet vlc-connection) nil))
+
+(defun vlc-cmd-shutdown (vlc-connection)
+  "Close the VLC instance of VLC-CONNECTION"
+  (vlc--send-cmd vlc-connection "shutdown")
+  (setf (vlc-connection-telnet vlc-connection) nil))
+
+(defun vlc-cmd-quit (vlc-connection)
+  "Close the VLC connection of VLC-CONNECTION."
+  (vlc--send-cmd vlc-connection "quit")
+  (setf (vlc-connection-telnet vlc-connection) nil))
 
 
 
