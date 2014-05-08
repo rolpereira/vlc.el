@@ -36,12 +36,6 @@
   (let ((telnet-interface (vlc-connection-telnet vlc-connection)))
     (vlc--process-send-line telnet-interface string)))
 
-(defun vlc--read-output (vlc-connection)
-  "Read output from vlc-connection process."
-  (let ((telnet-interface (vlc-connection-telnet vlc-connection)))
-    (vlc--)))
-
-
 
 (defun vlc-cmd-login (vlc-connection)
   (let ((host (vlc-connection-host vlc-connection))
