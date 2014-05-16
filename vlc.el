@@ -33,11 +33,24 @@
   (process-send-string process (concat string "\n")))
 
 (defun vlc--send-line (vlc-connection string)
+  "Send STRING to the telnet connection associated to VLC-CONNECTION.
+
+String should not contain the trailing new line."
+  ;; VLC-CONNECTION must have an active telnet process
+  (unless (vlc-connection-telnet vlc-connection)
+    (error "VLC-CONNECTION does not have a telnet process, please run `vlc-cmd-login' first"))
   (let ((telnet-interface (vlc-connection-telnet vlc-connection)))
     (vlc--process-send-line telnet-interface string)))
 
 
 (defun vlc-cmd-login (vlc-connection)
+  "Login into the VLC specified in VLC-CONNECTION using the telnet interface.
+
+Creates a new telnet connection if needed.
+
+Throws a `file-error' signal if the connection can't be open.
+
+Doesn't return anything."
   (let ((host (vlc-connection-host vlc-connection))
          (port (vlc-connection-port vlc-connection))
          (timeout (vlc-connection-timeout vlc-connection))
@@ -48,10 +61,9 @@
       (setf (vlc-connection-telnet vlc-connection)
         (open-protocol-stream "vlc-connection-telnet"
           (get-buffer-create " *vlc-connection-telnet*")
-          (vlc-connection-host vlc-connection)
-          (vlc-connection-port vlc-connection))))
+          host port)))
     ;; Perform the initial login
-    (vlc--process-send-line (vlc-connection-telnet vlc-connection) "admin")))
+    (vlc--process-send-line (vlc-connection-telnet vlc-connection) password)))
 
 
 (defun vlc--clean-output (output)
@@ -69,13 +81,17 @@
       command-output)))
 
 (defun vlc--send-cmd (vlc-connection cmd)
-  "Send command to vlc connection and return the output."
+  "Send command to vlc connection and return the output.
+
+CMD should be a string similar to \"add foobar\"."
   (let ((point-in-process-buffer (with-current-buffer " *vlc-connection-telnet*"
                                    (point))))
     (vlc--send-line vlc-connection cmd)
     (with-current-buffer " *vlc-connection-telnet*"
       (while (= point-in-process-buffer (point))
         ;; Need to wait for the buffer's process to receive something from vlc
+        ;; This wait is here due to the asynchronous nature of the process
+        ;; communication framework used by Emacs.
         ;; TODO: Wait only for the timeout
         (sleep-for 0.1))
       ;; Clean the output returned by vlc
@@ -130,14 +146,15 @@
   (car (last list)))
 
 
-(defmacro defcommand (name &rest rest)
+(defmacro vlc--defcommand (name &rest rest)
+  "Create a function that sends command NAME to a vlc-connection."
   (if (and (vlc--optional-argument-p (car rest))
         (= (length (car rest)) 3))
-    `(defcommand-with-on-or-off ,name ,@rest)
-    `(defcommand-normal ,name ,@rest)))
+    `(vlc--defcommand-with-on-or-off ,name ,@rest)
+    `(vlc--defcommand-normal ,name ,@rest)))
 
 
-(defmacro defcommand-normal (name &rest rest)
+(defmacro vlc--defcommand-normal (name &rest rest)
   (let* ((command-name (intern (format "vlc-cmd-%s" name)))
           (command-args (butlast rest))
           (has-optional-arguments (cl-some #'vlc--optional-argument-p command-args))
@@ -156,7 +173,7 @@
 
 
 
-(defmacro defcommand-with-on-or-off (name args docstring)
+(defmacro vlc--defcommand-with-on-or-off (name args docstring)
   (declare (ignore args)) ;; we know that `args' is always the vector [on :or off]
   (let ((command-name (intern (format "vlc-cmd-%s" name))))
     `(defun ,command-name (vl &optional switch)
@@ -173,72 +190,72 @@
 
 ;;; Create the wrappers around the VLC commands
 (progn
-  (defcommand add XYZ "add XYZ to playlist")
-  (defcommand enqueue XYZ "queue XYX to playlist")
-  (defcommand playlist "show items currently in playlist")
-  (defcommand search [string] "search for items in playlist (or reset search)")
-  (defcommand sort key "sort the playlist")
-  (defcommand sd [sd] "show services discovery or toggle")
-  (defcommand play "play stream")
-  (defcommand stop "stop stream")
-  (defcommand next "next playlist item")
-  (defcommand prev "previous playlist item")
-  (defcommand goto "goto item at index")
-  (defcommand gotoitem "goto item at index")
-  (defcommand repeat [on :or off] "toggle playlist repeat")
-  (defcommand loop [on :or off] "toggle playlist loop")
-  (defcommand random [on :or off] "toggle playlist random")
-  (defcommand clear "clear the playlist")
-  (defcommand status "current playlist status")
-  (defcommand title [x] "set/get title in current item")
-  (defcommand title_n "next title in current item")
-  (defcommand title_p "previous title in current item")
-  (defcommand chapter [x] "set/get chapter in current item")
-  (defcommand chapter_n "next chapter in current item")
-  (defcommand chapter_p "previous chapter in current item")
-  (defcommand seek X "seek in seconds, for instance `seek 12'")
-  (defcommand pause "toggle pause")
-  (defcommand fastforward "set to maximum rate")
-  (defcommand rewind "set to minimum rate")
-  (defcommand faster "faster playing of stream")
-  (defcommand slower "slower playing of stream")
-  (defcommand normal "normal playing of stream")
-  (defcommand rate [playback-rate] "set playback rate to value")
-  (defcommand frame "play frame by frame")
-  (defcommand fullscreen [on :or off] "toggle fullscreen")
-  (defcommand f [on :or off] "toggle fullscreen")
-  (defcommand info "information about the current stream")
-  (defcommand stats "show statistical information")
-  (defcommand get_time "seconds elapsed since stream's beginning")
-  (defcommand is_playing "1 if a stream plays, 0 otherwise")
-  (defcommand get_title "the title of the current stream")
-  (defcommand get_length "the length of the current stream")
-  (defcommand volume [X] "set/get audio volume")
-  (defcommand volup [X] "raise audio volume X steps")
-  (defcommand voldown [X] "lower audio volume X steps")
-  (defcommand adev [X] "set/get audio device")
-  (defcommand achan [X] "set/get audio channels")
-  (defcommand atrack [X] "set/get audio track")
-  (defcommand vtrack [X] "set/get video track")
-  (defcommand vratio [X] "set/get video aspect ratio")
-  (defcommand vcrop [X] "set/get video crop")
-  (defcommand crop [X] "set/get video crop")
-  (defcommand vzoom [X] "set/get video zoom")
-  (defcommand zoom [X] "set/get video zoom")
-  (defcommand vdeinterlace [X] "set/get video deinterlace")
-  (defcommand vdeinterlace_mode [X] "set/get video deinterlace mode")
-  (defcommand snapshot "take video snapshot")
-  (defcommand strack [X] "set/get subtitles track")
-  (defcommand vlm "load the VLM")
-  (defcommand description "describe this module")
-  (defcommand help [pattern] "a help message") ; Do not use the alias "?"
-  (defcommand longhelp [pattern] "a longer help message")
-  (defcommand lock "lock the telnet prompt")
+  (vlc-defcommand add XYZ "add XYZ to playlist")
+  (vlc-defcommand enqueue XYZ "queue XYX to playlist")
+  (vlc-defcommand playlist "show items currently in playlist")
+  (vlc-defcommand search [string] "search for items in playlist (or reset search)")
+  (vlc-defcommand sort key "sort the playlist")
+  (vlc-defcommand sd [sd] "show services discovery or toggle")
+  (vlc-defcommand play "play stream")
+  (vlc-defcommand stop "stop stream")
+  (vlc-defcommand next "next playlist item")
+  (vlc-defcommand prev "previous playlist item")
+  (vlc-defcommand goto "goto item at index")
+  (vlc-defcommand gotoitem "goto item at index")
+  (vlc-defcommand repeat [on :or off] "toggle playlist repeat")
+  (vlc-defcommand loop [on :or off] "toggle playlist loop")
+  (vlc-defcommand random [on :or off] "toggle playlist random")
+  (vlc-defcommand clear "clear the playlist")
+  (vlc-defcommand status "current playlist status")
+  (vlc-defcommand title [x] "set/get title in current item")
+  (vlc-defcommand title_n "next title in current item")
+  (vlc-defcommand title_p "previous title in current item")
+  (vlc-defcommand chapter [x] "set/get chapter in current item")
+  (vlc-defcommand chapter_n "next chapter in current item")
+  (vlc-defcommand chapter_p "previous chapter in current item")
+  (vlc-defcommand seek X "seek in seconds, for instance `seek 12'")
+  (vlc-defcommand pause "toggle pause")
+  (vlc-defcommand fastforward "set to maximum rate")
+  (vlc-defcommand rewind "set to minimum rate")
+  (vlc-defcommand faster "faster playing of stream")
+  (vlc-defcommand slower "slower playing of stream")
+  (vlc-defcommand normal "normal playing of stream")
+  (vlc-defcommand rate [playback-rate] "set playback rate to value")
+  (vlc-defcommand frame "play frame by frame")
+  (vlc-defcommand fullscreen [on :or off] "toggle fullscreen")
+  (vlc-defcommand f [on :or off] "toggle fullscreen")
+  (vlc-defcommand info "information about the current stream")
+  (vlc-defcommand stats "show statistical information")
+  (vlc-defcommand get_time "seconds elapsed since stream's beginning")
+  (vlc-defcommand is_playing "1 if a stream plays, 0 otherwise")
+  (vlc-defcommand get_title "the title of the current stream")
+  (vlc-defcommand get_length "the length of the current stream")
+  (vlc-defcommand volume [X] "set/get audio volume")
+  (vlc-defcommand volup [X] "raise audio volume X steps")
+  (vlc-defcommand voldown [X] "lower audio volume X steps")
+  (vlc-defcommand adev [X] "set/get audio device")
+  (vlc-defcommand achan [X] "set/get audio channels")
+  (vlc-defcommand atrack [X] "set/get audio track")
+  (vlc-defcommand vtrack [X] "set/get video track")
+  (vlc-defcommand vratio [X] "set/get video aspect ratio")
+  (vlc-defcommand vcrop [X] "set/get video crop")
+  (vlc-defcommand crop [X] "set/get video crop")
+  (vlc-defcommand vzoom [X] "set/get video zoom")
+  (vlc-defcommand zoom [X] "set/get video zoom")
+  (vlc-defcommand vdeinterlace [X] "set/get video deinterlace")
+  (vlc-defcommand vdeinterlace_mode [X] "set/get video deinterlace mode")
+  (vlc-defcommand snapshot "take video snapshot")
+  (vlc-defcommand strack [X] "set/get subtitles track")
+  (vlc-defcommand vlm "load the VLM")
+  (vlc-defcommand description "describe this module")
+  (vlc-defcommand help [pattern] "a help message") ; Do not use the alias "?"
+  (vlc-defcommand longhelp [pattern] "a longer help message")
+  (vlc-defcommand lock "lock the telnet prompt")
   ;; These commands need some extra processing (i.e. closing the telnet connections so they're
   ;; defined as normal lisp functions instead of using the `defcommand' macro
-  ;; (defcommand quit "quit VLC (or logout if in a socket connection)")
-  ;; (defcommand shutdown "shutdown VLC")
-  ;; (defcommand logout "exit (if in a socket connection)")
+  ;; (vlc-defcommand quit "quit VLC (or logout if in a socket connection)")
+  ;; (vlc-defcommand shutdown "shutdown VLC")
+  ;; (vlc-defcommand logout "exit (if in a socket connection)")
   )
 
 
