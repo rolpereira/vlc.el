@@ -148,10 +148,14 @@ CMD should be a string similar to \"add foobar\"."
 
 (defmacro vlc--defcommand (name &rest rest)
   "Create a function that sends command NAME to a vlc-connection."
-  (if (and (vlc--optional-argument-p (car rest))
-        (= (length (car rest)) 3))
-    `(vlc--defcommand-with-on-or-off ,name ,@rest)
-    `(vlc--defcommand-normal ,name ,@rest)))
+  ;; `fixed-name' contains `name' except with the "_" characters converted into
+  ;; "-". This is done so that instead of this macro creating the function
+  ;; `vlc-cmd-get_time', it will create `vlc-cmd-get-time'.
+  (let ((fixed-name (intern (replace-regexp-in-string "_" "-" (symbol-name name)))))
+    (if (and (vlc--optional-argument-p (car rest))
+          (= (length (car rest)) 3))
+      `(vlc--defcommand-with-on-or-off ,fixed-name ,@rest)
+      `(vlc--defcommand-normal ,fixed-name ,@rest))))
 
 
 (defmacro vlc--defcommand-normal (name &rest rest)
